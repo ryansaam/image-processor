@@ -5,8 +5,8 @@
 int main() {
   cimg_library::CImg<float> lenaCondec("./colors/lena_condec.jpeg");
 
-  int width = skittleImg.width();
-  int height = skittleImg.height();
+  int width = lenaCondec.width();
+  int height = lenaCondec.height();
 
   // enhancing contrast
   // typeof skittleImg(col, row, 0, 0) is unsigned char &

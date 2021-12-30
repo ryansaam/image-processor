@@ -9,7 +9,6 @@ int main() {
   int height = lenaCondec.height();
 
   // enhancing contrast
-  // typeof skittleImg(col, row, 0, 0) is unsigned char &
   float minIntensity = 1.0f;
   float maxIntensity = 0.0f;
   cimg_library::CImg<float> imgBuffer = lenaCondec.get_RGBtoHSI();
@@ -22,11 +21,13 @@ int main() {
 
   for (int row = 0; row < height; row++)
         for (int col = 0; col < width; col++) {
-          const auto I = imgBuffer(col, row, 0, 2);
+          auto I = imgBuffer(col, row, 0, 2);
           const auto newIntensity = (((float)I - minIntensity) / (maxIntensity - minIntensity));
           std::cout << "old Intensity " << (float)I << std::endl;
-          std::cout << "new Intensity " << newIntensity << std::endl;
+
           imgBuffer(col, row, 0, 2) = newIntensity;
+          I = imgBuffer(col, row, 0, 2);
+          std::cout << "new Intensity " << (float)I << std::endl;
         }
 
   std::cout << "min " << minIntensity << std::endl;
@@ -35,10 +36,7 @@ int main() {
   cimg_library::CImg<float> outputImg = imgBuffer.get_HSItoRGB();
 
   // Debugging
-  cimg_library::CImgDisplay main_disp(lenaCondec, "Original");
-  cimg_library::CImgDisplay alt_disp(outputImg, "Edited");
-  main_disp.display(lenaCondec);
-  alt_disp.display(outputImg);
+  outputImg.save_jpeg("./colors/output-image.jpeg");
 
   std::getchar();
 

@@ -1,9 +1,14 @@
-// #include <filesystem>
 #include <iostream>
+#include <string>
+#include <filesystem>
+#include <vector>
+#include <array>
 #include "opencv2/imgcodecs.hpp"
 #include "opencv2/highgui.hpp"
 #include "opencv2/core.hpp"
-#include "CImg.h"
+#include "opencv2/imgproc.hpp"
+
+namespace fs = std::filesystem;
 
 template <class T>
 constexpr
@@ -11,67 +16,148 @@ std::string_view
 type_name();
 
 size_t truncate(size_t value);
+void saveImage(const std::string &filename, const cv::Mat &image);
+void bgrConversion(int argc, char** argv, const cv::Mat &image, const std::string &filename);
+void bumpContrast(int argc, char** argv, const cv::Mat &image, const std::string &filename);
+void grayConvert(int argc, char** argv, const cv::Mat &image, const std::string &filename);
 
 int main(int argc, char** argv) {
-  cimg_library::CImg<float> skittleImg("./colors/lenna_soderberg.jpeg");
+  // create output directory
+  fs::remove_all("processed");
+  fs::create_directory("processed");
 
-  int width = skittleImg.width();
-  int height = skittleImg.height();
+  // store all filenames in a vector
+  std::vector<std::string> files;
+  for (const auto &entry : fs::recursive_directory_iterator("./originals")) {
+      if (entry.path() == "./originals/.DS_Store")
+        continue;
 
-  // std::cout << "decltype(i) is " << type_name<decltype(skittleImg(0, 0, 0, 0))>() << '\n';
+      if (entry.path().extension() == ".jpeg" || entry.path().extension() == ".jpg") {
 
-  // convert to BGR
-  // for (int row = 0; row < height; row++)
-  //       for (int col = 0; col < width; col++) {
-  //
-  //           const auto R = skittleImg(col, row, 0, 0);
-  //           const auto G = skittleImg(col, row, 0, 1);
-  //           const auto B = skittleImg(col, row, 0, 2);
-  //
-  //           imgBuffer(col, row, 0, 0) = B;
-  //           imgBuffer(col, row, 0, 1) = G;
-  //           imgBuffer(col, row, 0, 2) = R;
-  //
-  //       }
+          std::string imgPath = entry.path().string();
+          std::string delimiter = "/";
 
-  // enhancing contrast
-  cv::CommandLineParser parser( argc, argv, "{@input | ./colors/lenna_soderberg.jpeg | input image}" );
-  cv::Mat image = cv::imread( cv::samples::findFile( parser.get<cv::String>( "@input" ) ) );
-  if( image.empty() )
-  {
-    std::cout << "Could not open or find the image!\n" << std::endl;
-    std::cout << "Usage: " << argv[0] << " <Input image>" << std::endl;
-    return -1;
+          size_t pos = 0;
+          std::string token;
+          while ((pos = imgPath.find(delimiter)) != std::string::npos) {
+              token = imgPath.substr(0, pos);
+              imgPath.erase(0, pos + delimiter.length());
+          }
+
+          std::array<std::string, 4> imgPrefix = { "org_", "bgr_", "con_", "gra_" };
+          for (int i = 0; i < 4; i++)
+              files.emplace_back(imgPrefix[i]+imgPath);
+
+      }
+      else {
+        std::cout << "Fatal err: Image codec was not jpeg! Image: " << entry.path().string() << std::endl;
+        return -1;
+      }
   }
 
-  cv::Mat imageBuffer = cv::Mat::zeros( image.size(), image.type() );
+  // Do conversions: bgr, contrast, grayscale
+  for (const auto &filename : files) {
 
-  double alpha = 1.8; /*< Simple contrast control */
-  int beta = 0;     /*< Simple brightness control */
+      std::cout << filename << std::endl;
 
-  for( int row = 0; row < image.rows; row++ ) {
-        for( int col = 0; col < image.cols; col++ ) {
-            for( int channel = 0; channel < image.channels(); channel++ ) {
-                imageBuffer.at<cv::Vec3b>(row,col)[channel] =
-                  cv::saturate_cast<uchar>( alpha * image.at<cv::Vec3b>(row,col)[channel] + beta );
-            }
-        }
+      cv::CommandLineParser parser( argc, argv, "{@input | ./originals/" + filename.substr(4) + " | input image}" );
+      cv::Mat image = cv::imread( cv::samples::findFile( parser.get<cv::String>( "@input" ) ) );
+      if( image.empty() )
+      {
+        std::cout << "Could not open or find the image!\n" << std::endl;
+        std::cout << "Usage: " << argv[0] << " <Input image>" << std::endl;
+        return -1;
+      }
+
+      // keep original
+      if (filename.find("org") != std::string::npos) {
+          saveImage(filename, image);
+      }
+
+      // convert to BGR
+      else if (filename.find("bgr") != std::string::npos) {
+          bgrConversion(argc, argv, image, filename);
+      }
+
+      // enhancing contrast
+      else if (filename.find("con") != std::string::npos) {
+          bumpContrast(argc, argv, image, filename);
+      }
+
+      // convert to gray scale
+      else if (filename.find("gra") != std::string::npos) {
+          grayConvert(argc, argv, image, filename);
+      }
+
+      else {
+          std::cout << "ERROR: Invaild image prefix in"
+                    << filename
+                    << "; image must be prefix with 'org', 'bgr', 'con', or 'gra'!"
+                    << std::endl;
+      }
+
   }
-
-  imshow("Original Image", image);
-  imshow("New Image", imageBuffer);
-  cv::waitKey();
-
-  // convert to gray scale
-  //imgBuffer.RGBtoYCbCr().channel(0);
-
-
-
-  // Debugging
-
-  std::getchar();
 
   return 0;
+}
+
+void saveImage(const std::string &filename, const cv::Mat &image) {
+    bool result = false;
+    try
+    {
+        result = imwrite("./processed/"+filename, image);
+    }
+    catch (const cv::Exception& ex)
+    {
+        fprintf(stderr, "Exception converting image to JPEG format: %s\n", ex.what());
+    }
+
+    if (result)
+        printf("Saved JPEG file\n");
+    else
+        printf("ERROR: Can't save JPEG file.\n");
+
+    return;
+}
+
+void bgrConversion(int argc, char** argv, const cv::Mat &image, const std::string &filename) {
+    cv::Mat imageBuffer = cv::Mat::zeros( image.size(), image.type() );
+
+    cv::cvtColor(image, imageBuffer, cv::COLOR_BGR2RGB);
+
+    saveImage(filename, imageBuffer);
+
+    return;
+}
+
+void bumpContrast(int argc, char** argv, const cv::Mat &image, const std::string &filename) {
+    cv::Mat imageBuffer = cv::Mat::zeros( image.size(), image.type() );
+
+    const double alpha = 1.3; /*< Simple contrast control */
+    const int beta = -32;     /*< Simple brightness control */
+
+    for( int row = 0; row < image.rows; row++ ) {
+          for( int col = 0; col < image.cols; col++ ) {
+              for( int channel = 0; channel < image.channels(); channel++ ) {
+                  imageBuffer.at<cv::Vec3b>(row,col)[channel] =
+                    cv::saturate_cast<uchar>( alpha * image.at<cv::Vec3b>(row,col)[channel] + beta );
+              }
+          }
+    }
+
+    saveImage(filename, imageBuffer);
+
+    return;
+}
+
+void grayConvert(int argc, char** argv, const cv::Mat &image, const std::string &filename) {
+    cv::Mat imageBuffer = cv::Mat::zeros( image.size(), image.type() );
+
+    cv::cvtColor(image, imageBuffer, cv::COLOR_BGR2GRAY);
+
+    saveImage(filename, imageBuffer);
+
+    return;
 }
 
 template <class T>
@@ -104,4 +190,4 @@ size_t truncate(size_t value)
     return value;
 }
 
-// g++ -std=c++17 -I/opt/X11/include -L/opt/X11/lib -lX11 main.cpp -o build
+// g++ -std=c++17 main.cpp -lopencv_imgcodecs -lopencv_highgui -lopencv_core -lopencv_imgproc -o build -I/usr/local/include/opencv4
